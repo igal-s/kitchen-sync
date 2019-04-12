@@ -1,5 +1,5 @@
 #
-# Copyright 2014-2016, Noah Kantrowitz
+# Copyright 2019, Igal Shprincis
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,28 +21,22 @@ require 'json'
 require 'kitchen/transport/ssh'
 require 'net/sftp'
 
-require 'kitchen-sync/core_ext'
+require 'kitchen-syncgz/core_ext'
 
+require 'rubygems'
+require 'rubygems/package'
+require 'zlib'
+require 'fileutils'
 
 module Kitchen
   module Transport
-    class Sftp < Ssh
-      CHECKSUMS_PATH = File.expand_path('../../../kitchen-sync/checksums.rb', __FILE__)
+    class Sftpgz < Ssh
+      CHECKSUMS_PATH = File.expand_path('../../../kitchen-syncgz/checksums.rb', __FILE__)
       CHECKSUMS_HASH = Digest::SHA1.file(CHECKSUMS_PATH)
       CHECKSUMS_REMOTE_PATH = "/tmp/checksums-#{CHECKSUMS_HASH}.rb" # This won't work on Windows targets
       MAX_TRANSFERS = 64
 
       default_config :ruby_path, '/opt/chef/embedded/bin/ruby'
-
-      def finalize_config!(instance)
-        super.tap do
-          if defined?(Kitchen::Verifier::Inspec) && instance.verifier.is_a?(Kitchen::Verifier::Inspec)
-            instance.verifier.send(:define_singleton_method, :runner_options_for_sftp) do |config_data|
-              runner_options_for_ssh(config_data)
-            end
-          end
-        end
-      end
 
       # Copy-pasta from Ssh#create_new_connection because I need the SFTP
       # connection class.
@@ -93,8 +87,8 @@ module Kitchen
           Array(locals).each do |local|
             full_remote = File.join(remote, File.basename(local))
             options = {
-              recursive: File.directory?(local),
-              purge: File.basename(local) != 'cache',
+                recursive: File.directory?(local),
+                purge: File.basename(local) != 'cache',
             }
             recursive = File.directory?(local)
             time = Benchmark.realtime do
@@ -111,7 +105,26 @@ module Kitchen
           unless safe_stat(remote)
             logger.debug("[SFTP] Fast path upload from #{local} to #{remote}")
             sftp_session.mkdir!(remote) if recursive
-            sftp_session.upload!(local, remote, requests: MAX_TRANSFERS)
+            gzip_uploaded = false
+            if File.directory?(local)
+              logger.debug("[SFTP] Attempting to upload gzip of folder")
+              # tar.gz folder
+              temp_file_name = 'xfer_tmp.tar.gz'
+              gzipped_file_path = File.join(local, temp_file_name)
+              gzipped_data = gzip(tar(local), gzipped_file_path)
+              # Upload tar.gz to remote
+              remote_path = "#{remote}/#{temp_file_name}"
+              sftp_session.upload!(gzipped_file_path, remote_path, requests: MAX_TRANSFERS)
+              # Unzip tar.gz @ remote
+              exit_code = execute_with_exit_code("cd #{remote} && tar -zxvf #{temp_file_name}")
+              # Cleanup
+              sftp_session.remove(remote_path)
+              # Validate success
+              gzip_uploaded = exit_code == 0
+            end
+            if not gzip_uploaded
+              sftp_session.upload!(local, remote, requests: MAX_TRANSFERS)
+            end
             return
           end
           # Get checksums for existing files on the remote side.
@@ -198,10 +211,10 @@ module Kitchen
 
         def files_to_upload(checksums, local, recursive)
           glob_path = if recursive
-            File.join(local, '**', '*')
-          else
-            local
-          end
+                        File.join(local, '**', '*')
+                      else
+                        local
+                      end
           pending = []
           Dir.glob(glob_path, File::FNM_PATHNAME | File::FNM_DOTMATCH).each do |path|
             next unless File.file?(path)
@@ -255,9 +268,36 @@ module Kitchen
           end
         end
 
+        def tar(path)
+          tarfile = StringIO.new("")
+          Gem::Package::TarWriter.new(tarfile) do |tar|
+            Dir[File.join(path, "**/*")].each do |file|
+              mode = File.stat(file).mode
+              relative_file = file.sub /^#{Regexp::escape path}\/?/, ''
 
+              if File.directory?(file)
+                tar.mkdir relative_file, mode
+              else
+                tar.add_file relative_file, mode do |tf|
+                  File.open(file, "rb") { |f| tf.write f.read }
+                end
+              end
+            end
+          end
+
+          tarfile.rewind
+          tarfile
+        end
+
+        # gzips the underlying string in the given StringIO,
+        # returning a new StringIO representing the
+        # compressed file.
+        def gzip(tarfile, output_file)
+          z = Zlib::GzipWriter.open(output_file)
+          z.write tarfile.read
+          z.close
+        end
       end
-
     end
   end
 end

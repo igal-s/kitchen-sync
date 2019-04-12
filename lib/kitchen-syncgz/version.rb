@@ -1,5 +1,5 @@
 #
-# Copyright 2014-2016, Noah Kantrowitz
+# Copyright 2019, Igal Shprincis
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,6 +15,6 @@
 #
 
 
-class KitchenSync
-  VERSION = '2.2.2.pre'
+class KitchenSyncGZ
+  VERSION = '1.0.0'
 end

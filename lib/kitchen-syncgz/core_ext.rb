@@ -1,5 +1,5 @@
 #
-# Copyright 2014-2016, Noah Kantrowitz
+# Copyright 2019, Igal Shprincis
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,6 @@
 # limitations under the License.
 #
 
-# ┻━┻ ︵ヽ(`Д´)ﾉ︵ ┻━┻
 module Kitchen
   # Monkey patch to prevent the deletion of everything
   module Provisioner
@@ -23,8 +22,7 @@ module Kitchen
       old_init_command = instance_method(:init_command)
 
       define_method(:init_command) do
-        if (defined?(Kitchen::Transport::Sftp) && instance.transport.is_a?(Kitchen::Transport::Sftp)) || \
-           (defined?(Kitchen::Transport::Rsync) && instance.transport.is_a?(Kitchen::Transport::Rsync))
+        if defined?(Kitchen::Transport::Sftpgz) && instance.transport.is_a?(Kitchen::Transport::Sftpgz)
            "mkdir -p #{config[:root_path]}"
         else
           old_init_command.bind(self).()

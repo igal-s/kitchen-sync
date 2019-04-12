@@ -1,8 +1,8 @@
 #!/usr/bin/env rake
 #
-# Author:: Noah Kantrowitz <noah@coderanger.net>
+# Author:: Igal Shprincis <igal.shprincis@gmail.com>
 #
-# Copyright 2014, Noah Kantrowitz
+# Copyright 2019, Igal Shprincis
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
